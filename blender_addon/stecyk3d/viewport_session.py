@@ -218,7 +218,10 @@ class ViewportSession:
             self.message = "the renderer program cannot be started: %s" % error
             self._stop_server()
             return False
-        os.set_blocking(self._server.stdout.fileno(), False)  # blender-integration.md 5.1
+        try:
+            os.set_blocking(self._server.stdout.fileno(), False)  # blender-integration.md 5.1
+        except AttributeError:
+            pass  # Windows: the pipe stays blocking; tick() handles it with PeekNamedPipe
         self._server_command = command
         self.server_starts += 1
         debug("renderer %d started" % self.server_starts)
@@ -317,6 +320,18 @@ class ViewportSession:
         deadline = now + READ_BUDGET
         ends = []
         while True:
+            if os.name == "nt":
+                # Windows: os.read on a blocking pipe would freeze Blender.
+                # PeekNamedPipe tells us whether data is available without blocking.
+                try:
+                    import msvcrt
+                    import _winapi
+                    handle = msvcrt.get_osfhandle(server.stdout.fileno())
+                    available, _ = _winapi.PeekNamedPipe(handle, 0)
+                    if available == 0:
+                        break  # no data right now, don't call os.read
+                except (OSError, ImportError, AttributeError):
+                    break
             try:
                 chunk = os.read(server.stdout.fileno(), READ_CHUNK)
             except OSError:  # BlockingIOError: nothing at the moment
