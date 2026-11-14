@@ -1,5 +1,5 @@
 # Stecyk3D fixed
-This fork fixes viewport_session.py to work with Windows. 
+This fork fixes engine.py and viewport_session.py to work with Windows. 
 
 Made with Deepseek AI.
 
