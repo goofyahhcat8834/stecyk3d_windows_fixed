@@ -28,6 +28,22 @@ LivePicture = stream.LivePicture  # moved to stream.py (pure, tested without bpy
 LAST_MAKE = {}  # the last Make substrate: {"seconds", "lines" (what it found, per folder and file), "error"}
 
 
+def _pipe_has_data(run):
+    """True when the renderer's stdout pipe has data to read right now. On Windows, os.read on a
+    blocking pipe would freeze Blender, so we ask the OS with PeekNamedPipe first. On other
+    systems (or if the check fails) we assume data may be there and let os.read decide."""
+    if os.name != "nt":
+        return True
+    try:
+        import msvcrt
+        import _winapi
+        handle = msvcrt.get_osfhandle(run.stdout.fileno())
+        available, _ = _winapi.PeekNamedPipe(handle, 0)
+        return available > 0
+    except (OSError, ImportError, AttributeError):
+        return True  # can't tell: let os.read try (it may block, but at least it won't silently skip data)
+
+
 class Stecyk3DPreferences(bpy.types.AddonPreferences):
     bl_idname = __package__
     # The one thing the user gives: where each Bryce version is installed (each optional, any subset). The
@@ -361,7 +377,10 @@ class BryceRenderEngine(bpy.types.RenderEngine):
             live = None
             result = None
             if progressive:
-                os.set_blocking(run.stdout.fileno(), False)  # 5.1
+                try:
+                    os.set_blocking(run.stdout.fileno(), False)  # 5.1
+                except AttributeError:
+                    pass  # Windows: the pipe stays blocking; _pipe_has_data() guards the reads below
                 live = LivePicture(width, height)
                 self.plain_colour(scene)  # before the first pixels, so the live view is the final one's colour
                 result = self.begin_result(0, 0, width, height)
@@ -377,6 +396,8 @@ class BryceRenderEngine(bpy.types.RenderEngine):
                     # cancel are still looked at), without sleeping while there is more: sleeping 50 ms
                     # per 64 KB pipe-full capped F12 at ~1.3 MB/s and cost ~0.9 s at 640x480.
                     for _ in range(64):
+                        if not _pipe_has_data(run):
+                            break  # Windows: nothing to read right now, don't block
                         try:
                             chunk = os.read(run.stdout.fileno(), 1 << 20)
                         except OSError:  # nothing this moment (the pipe is empty, or the end is reached)
@@ -409,6 +430,8 @@ class BryceRenderEngine(bpy.types.RenderEngine):
                 return
             if live is not None:  # the pipe may still hold records the program wrote as it ended
                 while True:
+                    if not _pipe_has_data(run):
+                        break  # Windows: no more data right now
                     try:
                         chunk = os.read(run.stdout.fileno(), 1 << 20)
                     except OSError:
