@@ -1,4 +1,6 @@
-# Stecyk3D
+# Stecyk3D fixed
+This fork fixes viewport_session.py to work with Windows
+Made with Deepseek AI
 
 > **Experimental.** First release. It draws most scenes the way the Bryce programs do and refuses, with a reason, what it cannot draw. Read [the known differences](docs/manual/troubleshooting.md) before relying on a picture.
 
